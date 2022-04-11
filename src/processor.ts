@@ -1,13 +1,14 @@
 import * as ss58 from "@subsquid/ss58";
 import {
   EventHandlerContext,
+  ExtrinsicHandlerContext,
   Store,
   SubstrateProcessor,
 } from "@subsquid/substrate-processor";
 import { lookupArchive } from "@subsquid/archive-registry";
 import { HistoricalTreasuryBalance, Treasury, TreasuryProposal, TreasuryStatus } from "./model";
-import { getTreasuryBurntBudget, getTreasuryDepositBudget, getTreasuryProposalIndex, getTreasuryRolloverBudget, getTreasurySpendingBudget } from './event_helpers'
-import { getProposedSpendExtrinsic } from "./extrinsic_helpers";
+import { getAwardedProposalEvent, getRejectedProposalEvent, getTreasuryBurntBudget, getTreasuryDepositBudget, getTreasuryProposalIndex, getTreasuryRolloverBudget, getTreasurySpendingBudget } from './event_helpers'
+import { getApproveProposalExtrinsic, getProposedSpendExtrinsic } from "./extrinsic_helpers";
 
 const processor = new SubstrateProcessor("polkadot_treasury");
 
@@ -25,6 +26,8 @@ processor.addEventHandler("treasury.Burnt", processBurnt);
 processor.addEventHandler("treasury.Rollover", processRollover);
 processor.addEventHandler("treasury.Deposit", processDeposit);
 
+processor.addExtrinsicHandler("treasury.approve_proposal", processApproveProposal);
+
 processor.run();
 
 async function processProposed(ctx: EventHandlerContext): Promise<void> {
@@ -37,7 +40,7 @@ async function processProposed(ctx: EventHandlerContext): Promise<void> {
   const treasuryProposal = await getOrCreate(ctx.store, TreasuryProposal, proposalIndex.toString());
   treasuryProposal.status = TreasuryStatus.PROPOSED;
   treasuryProposal.value = ext.value;
-  // treasuryProposal.beneficiary = encodeID(ext.beneficiary, 0);
+  treasuryProposal.beneficiary = encodeID(ext.beneficiaryId, 0) ?? "None";
 
   await ctx.store.save(treasuryProposal);
 }
@@ -59,11 +62,32 @@ async function processSpending(ctx: EventHandlerContext): Promise<void> {
 }
 
 async function processAwarded(ctx:EventHandlerContext): Promise<void> {
-  
+  const awardEvent = getAwardedProposalEvent(ctx);
+
+  const proposal = await getOrCreate(ctx.store, TreasuryProposal, awardEvent.proposalIndex.toString());
+  proposal.status = TreasuryStatus.AWARDED;
+  await ctx.store.save(proposal);
+
+  const treasury = await getOrCreate(ctx.store, Treasury, '1');
+  treasury.balance -= awardEvent.award;
+  await ctx.store.save(treasury);
+
+  const treasuryBalance = new HistoricalTreasuryBalance();
+  treasuryBalance.balance = treasury.balance;
+  treasuryBalance.treasury = treasury;
+  treasuryBalance.date = new Date(ctx.block.timestamp);
+  await ctx.store.save(treasuryBalance);
 }
 
 async function processRejected(ctx:EventHandlerContext): Promise<void> {
-  
+  const rejEvent = getRejectedProposalEvent(ctx);
+
+  const proposal = await getOrCreate(ctx.store, TreasuryProposal, rejEvent.proposalIndex.toString());
+  proposal.status = TreasuryStatus.AWARDED;
+  await ctx.store.save(proposal);
+
+  // when a proposal is rejected, the funds used for the anti-spam mechanism are slashed.
+  // we could change the treasuryBalance here, but they are added to the Treasury via a Deposit event
 }
 
 async function processBurnt(ctx:EventHandlerContext): Promise<void> {
@@ -112,6 +136,15 @@ async function processDeposit(ctx:EventHandlerContext): Promise<void> {
   treasuryBalance.treasury = treasury;
   treasuryBalance.date = new Date(ctx.block.timestamp);
   await ctx.store.save(treasuryBalance);
+}
+
+async function processApproveProposal(ctx: ExtrinsicHandlerContext): Promise<void> {
+  const proposalId = getApproveProposalExtrinsic(ctx);
+
+  const proposal = await getOrCreate(ctx.store, TreasuryProposal, proposalId.toString());
+
+  proposal.status = TreasuryStatus.APPROVED;
+  await ctx.store.save(proposal);
 }
 
 async function getOrCreate<T extends { id: string }>(
