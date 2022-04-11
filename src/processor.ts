@@ -52,6 +52,7 @@ async function processSpending(ctx: EventHandlerContext): Promise<void> {
   await ctx.store.save(treasury);
 
   const treasuryBalance = new HistoricalTreasuryBalance();
+  treasuryBalance.id = ctx.event.id;
   treasuryBalance.balance = budgetRemaining;
   treasuryBalance.treasury = treasury;
   treasuryBalance.date = new Date(ctx.block.timestamp);
@@ -70,6 +71,7 @@ async function processAwarded(ctx:EventHandlerContext): Promise<void> {
   await ctx.store.save(treasury);
 
   const treasuryBalance = new HistoricalTreasuryBalance();
+  treasuryBalance.id = ctx.event.id;
   treasuryBalance.balance = treasury.balance;
   treasuryBalance.treasury = treasury;
   treasuryBalance.date = new Date(ctx.block.timestamp);
@@ -97,6 +99,7 @@ async function processBurnt(ctx:EventHandlerContext): Promise<void> {
   await ctx.store.save(treasury);
 
   const treasuryBalance = new HistoricalTreasuryBalance();
+  treasuryBalance.id = ctx.event.id;
   treasuryBalance.balance = treasury.balance;
   treasuryBalance.treasury = treasury;
   treasuryBalance.date = new Date(ctx.block.timestamp);
@@ -113,6 +116,7 @@ async function processRollover(ctx:EventHandlerContext): Promise<void> {
   await ctx.store.save(treasury);
 
   const treasuryBalance = new HistoricalTreasuryBalance();
+  treasuryBalance.id = ctx.event.id;
   treasuryBalance.balance = rolloverBalance;
   treasuryBalance.treasury = treasury;
   treasuryBalance.date = new Date(ctx.block.timestamp);
@@ -125,10 +129,11 @@ async function processDeposit(ctx:EventHandlerContext): Promise<void> {
   // there is only one treasury, this is a 'fake' ID.
   // I don't like this solution, might change it in the future
   const treasury = await getOrCreate(ctx.store, Treasury, '1');
-  treasury.balance += value;
+  treasury.balance = treasury.balance? treasury.balance + value : value;
   await ctx.store.save(treasury);
 
   const treasuryBalance = new HistoricalTreasuryBalance();
+  treasuryBalance.id = ctx.event.id;
   treasuryBalance.balance = treasury.balance;
   treasuryBalance.treasury = treasury;
   treasuryBalance.date = new Date(ctx.block.timestamp);
