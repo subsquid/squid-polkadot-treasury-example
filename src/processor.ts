@@ -32,9 +32,6 @@ processor.run();
 
 async function processProposed(ctx: EventHandlerContext): Promise<void> {
   const proposalIndex = getTreasuryProposalIndex(ctx);
-  
-  console.log(ctx.extrinsic);
-  console.log(ctx.extrinsic?.args);
 
   const ext = getProposedSpendExtrinsic(ctx);
   const treasuryProposal = await getOrCreate(ctx.store, TreasuryProposal, proposalIndex.toString());
