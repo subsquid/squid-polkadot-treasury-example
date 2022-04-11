@@ -5,76 +5,113 @@ import {
   SubstrateProcessor,
 } from "@subsquid/substrate-processor";
 import { lookupArchive } from "@subsquid/archive-registry";
-import { Account, HistoricalBalance } from "./model";
-import { BalancesTransferEvent } from "./types/events";
+import { HistoricalTreasuryBalance, Treasury, TreasuryProposal, TreasuryStatus } from "./model";
+import { getTreasuryBurntBudget, getTreasuryDepositBudget, getTreasuryProposalIndex, getTreasuryRolloverBudget, getTreasurySpendingBudget } from './event_helpers'
+import { getProposedSpendExtrinsic } from "./extrinsic_helpers";
 
-const processor = new SubstrateProcessor("kusama_balances");
+const processor = new SubstrateProcessor("polkadot_treasury");
 
 processor.setBatchSize(500);
 processor.setDataSource({
-  archive: lookupArchive("kusama")[0].url,
-  chain: "wss://kusama-rpc.polkadot.io",
+  archive: lookupArchive("polkadot")[0].url,
+  chain: "wss://rpc.polkadot.io",
 });
 
-processor.addEventHandler("balances.Transfer", async (ctx) => {
-  const transfer = getTransferEvent(ctx);
-  const tip = ctx.extrinsic?.tip || 0n;
-  const from = ss58.codec("kusama").encode(transfer.from);
-  const to = ss58.codec("kusama").encode(transfer.to);
-
-  const fromAcc = await getOrCreate(ctx.store, Account, from);
-  fromAcc.balance = fromAcc.balance || 0n;
-  fromAcc.balance -= transfer.amount;
-  fromAcc.balance -= tip;
-  await ctx.store.save(fromAcc);
-
-  const toAcc = await getOrCreate(ctx.store, Account, to);
-  toAcc.balance = toAcc.balance || 0n;
-  toAcc.balance += transfer.amount;
-  await ctx.store.save(toAcc);
-
-  await ctx.store.save(
-    new HistoricalBalance({
-      id: `${ctx.event.id}-to`,
-      account: fromAcc,
-      balance: fromAcc.balance,
-      date: new Date(ctx.block.timestamp),
-    })
-  );
-
-  await ctx.store.save(
-    new HistoricalBalance({
-      id: `${ctx.event.id}-from`,
-      account: toAcc,
-      balance: toAcc.balance,
-      date: new Date(ctx.block.timestamp),
-    })
-  );
-});
+processor.addEventHandler("treasury.Proposed", processProposed);
+processor.addEventHandler("treasury.Spending", processSpending);
+processor.addEventHandler("treasury.Awarded", processAwarded);
+processor.addEventHandler("treasury.Rejected", processRejected);
+processor.addEventHandler("treasury.Burnt", processBurnt);
+processor.addEventHandler("treasury.Rollover", processRollover);
+processor.addEventHandler("treasury.Deposit", processDeposit);
 
 processor.run();
 
-interface TransferEvent {
-  from: Uint8Array;
-  to: Uint8Array;
-  amount: bigint;
+async function processProposed(ctx: EventHandlerContext): Promise<void> {
+  const proposalIndex = getTreasuryProposalIndex(ctx);
+  
+  console.log(ctx.extrinsic);
+  console.log(ctx.extrinsic?.args);
+
+  const ext = getProposedSpendExtrinsic(ctx);
+  const treasuryProposal = await getOrCreate(ctx.store, TreasuryProposal, proposalIndex.toString());
+  treasuryProposal.status = TreasuryStatus.PROPOSED;
+  treasuryProposal.value = ext.value;
+  // treasuryProposal.beneficiary = encodeID(ext.beneficiary, 0);
+
+  await ctx.store.save(treasuryProposal);
 }
 
-function getTransferEvent(ctx: EventHandlerContext): TransferEvent {
-  const event = new BalancesTransferEvent(ctx);
-  if (event.isV1020) {
-    const [from, to, amount] = event.asV1020;
-    return { from, to, amount };
-  }
-  if (event.isV1050) {
-    const [from, to, amount] = event.asV1050;
-    return { from, to, amount };
-  }
-  if (event.isV9130) {
-    const { from, to, amount } = event.asV9130;
-    return { from, to, amount };
-  }
-  return event.asLatest;
+async function processSpending(ctx: EventHandlerContext): Promise<void> {
+  const budgetRemaining = getTreasurySpendingBudget(ctx);
+
+  // there is only one treasury, this is a 'fake' ID.
+  // I don't like this solution, might change it in the future
+  const treasury = await getOrCreate(ctx.store, Treasury, '1');
+  treasury.balance = budgetRemaining;
+  await ctx.store.save(treasury);
+
+  const treasuryBalance = new HistoricalTreasuryBalance();
+  treasuryBalance.balance = budgetRemaining;
+  treasuryBalance.treasury = treasury;
+  treasuryBalance.date = new Date(ctx.block.timestamp);
+  await ctx.store.save(treasuryBalance);
+}
+
+async function processAwarded(ctx:EventHandlerContext): Promise<void> {
+  
+}
+
+async function processRejected(ctx:EventHandlerContext): Promise<void> {
+  
+}
+
+async function processBurnt(ctx:EventHandlerContext): Promise<void> {
+  const burntFunds = getTreasuryBurntBudget(ctx);
+
+  // there is only one treasury, this is a 'fake' ID.
+  // I don't like this solution, might change it in the future
+  const treasury = await getOrCreate(ctx.store, Treasury, '1');
+  treasury.balance -= burntFunds;
+  await ctx.store.save(treasury);
+
+  const treasuryBalance = new HistoricalTreasuryBalance();
+  treasuryBalance.balance = treasury.balance;
+  treasuryBalance.treasury = treasury;
+  treasuryBalance.date = new Date(ctx.block.timestamp);
+  await ctx.store.save(treasuryBalance);
+}
+
+async function processRollover(ctx:EventHandlerContext): Promise<void> {
+  const rolloverBalance = getTreasuryRolloverBudget(ctx);
+
+  // there is only one treasury, this is a 'fake' ID.
+  // I don't like this solution, might change it in the future
+  const treasury = await getOrCreate(ctx.store, Treasury, '1');
+  treasury.balance = rolloverBalance;
+  await ctx.store.save(treasury);
+
+  const treasuryBalance = new HistoricalTreasuryBalance();
+  treasuryBalance.balance = rolloverBalance;
+  treasuryBalance.treasury = treasury;
+  treasuryBalance.date = new Date(ctx.block.timestamp);
+  await ctx.store.save(treasuryBalance);
+}
+
+async function processDeposit(ctx:EventHandlerContext): Promise<void> {
+  const value = getTreasuryDepositBudget(ctx);
+
+  // there is only one treasury, this is a 'fake' ID.
+  // I don't like this solution, might change it in the future
+  const treasury = await getOrCreate(ctx.store, Treasury, '1');
+  treasury.balance += value;
+  await ctx.store.save(treasury);
+
+  const treasuryBalance = new HistoricalTreasuryBalance();
+  treasuryBalance.balance = treasury.balance;
+  treasuryBalance.treasury = treasury;
+  treasuryBalance.date = new Date(ctx.block.timestamp);
+  await ctx.store.save(treasuryBalance);
 }
 
 async function getOrCreate<T extends { id: string }>(
@@ -97,3 +134,14 @@ async function getOrCreate<T extends { id: string }>(
 type EntityConstructor<T> = {
   new (...args: any[]): T;
 };
+
+function encodeID(ID: Uint8Array, prefix: string | number) {
+  let ret: string | null
+  try {
+      ret = ss58.codec(prefix).encode(ID)
+  } catch (e) {
+      ret = null
+  }
+
+  return ret
+}

@@ -1,2 +1,4 @@
-export * from "./account.model"
-export * from "./historicalBalance.model"
+export * from "./treasuryProposal.model"
+export * from "./_treasuryStatus"
+export * from "./historicalTreasuryBalance.model"
+export * from "./treasury.model"

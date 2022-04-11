@@ -1,9 +1,19 @@
 {
   "outDir": "src/types",
-  "chainVersions": "kusamaVersions.json",
-  "typesBundle": "kusama",
+  "chainVersions": "polkaVersions.json",
+  "typesBundle": "polkadot",
   "events": [
-    "balances.Transfer"
+    "treasury.Proposed",
+    "treasury.Spending",
+    "treasury.Awarded",
+    "treasury.Rejected",
+    "treasury.Burnt",
+    "treasury.Rollover",
+    "treasury.Deposit"
   ],
-  "calls": []
+  "calls": [
+    "treasury.propose_spend",
+    "treasury.reject_proposal",
+    "treasury.approve_proposal"
+  ]
 }
