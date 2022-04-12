@@ -33,13 +33,18 @@ processor.run();
 async function processProposed(ctx: EventHandlerContext): Promise<void> {
   const proposalIndex = getTreasuryProposalIndex(ctx);
 
-  const ext = getProposedSpendExtrinsic(ctx);
-  const treasuryProposal = await getOrCreate(ctx.store, TreasuryProposal, proposalIndex.toString());
-  treasuryProposal.status = TreasuryStatus.PROPOSED;
-  treasuryProposal.value = ext.value;
-  treasuryProposal.beneficiary = encodeID(ext.beneficiaryId, 0) ?? "None";
+  try {
+    const ext = getProposedSpendExtrinsic(ctx);
+    const treasuryProposal = await getOrCreate(ctx.store, TreasuryProposal, proposalIndex.toString());
+    treasuryProposal.status = TreasuryStatus.PROPOSED;
+    treasuryProposal.value = ext.value;
+    treasuryProposal.beneficiary = encodeID(ext.beneficiaryId, 0) ?? "None";
 
-  await ctx.store.save(treasuryProposal);
+    await ctx.store.save(treasuryProposal);
+  }
+  catch (e) {
+    console.log("Extrinsic was not of the right type", ctx.extrinsic?.method);
+  }
 }
 
 async function processSpending(ctx: EventHandlerContext): Promise<void> {
